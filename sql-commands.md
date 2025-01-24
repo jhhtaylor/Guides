@@ -148,3 +148,143 @@
 | NULL in aggregates | Use ISNULL/COALESCE |
 | Duplicate key | Add unique constraint |
 | Transaction deadlock | Optimize query order |
+
+---
+
+# SQL Server Comprehensive Demo: Every Major Concept  
+
+## 1. Database Setup with Filegroups  
+
+    CREATE DATABASE CompanyDemo  
+    ON PRIMARY  
+    (NAME = CompanyDemo_Data, FILENAME = '/var/opt/mssql/data/CompanyDemo.mdf'),  
+    FILEGROUP ActiveData  
+    (NAME = CompanyDemo_Active, FILENAME = '/var/opt/mssql/data/CompanyDemo_Active.ndf')  
+    LOG ON  
+    (NAME = CompanyDemo_Log, FILENAME = '/var/opt/mssql/data/CompanyDemo.ldf');  
+    GO  
+
+---
+
+## 2. Table Creation with Constraints  
+
+    CREATE TABLE Departments (  
+        DeptID INT PRIMARY KEY,  
+        DeptName VARCHAR(50) NOT NULL UNIQUE,  
+        Budget DECIMAL(15,2)  
+    );  
+
+    CREATE TABLE Employees (  
+        EmployeeID INT IDENTITY(1,1) PRIMARY KEY,  
+        FirstName VARCHAR(50) NOT NULL CHECK (FirstName <> ''),  
+        LastName VARCHAR(50) NOT NULL,  
+        Salary DECIMAL(10,2) CHECK (Salary > 30000),  
+        DeptID INT NULL FOREIGN KEY REFERENCES Departments(DeptID) -- Added DeptID  
+    ) ON ActiveData;  
+
+---
+
+## 3. Data Population  
+
+    INSERT INTO Departments (DeptID, DeptName, Budget) VALUES  
+    (1, 'IT', 150000),  
+    (2, 'HR', 90000);  
+
+    INSERT INTO Employees (FirstName, LastName, Salary, DeptID) VALUES  
+    ('Alice', 'Smith', 80000, 1),  
+    ('Bob', 'Johnson', 75000, 1),  
+    ('Carol', 'Williams', 82000, 1),  
+    ('David', 'Brown', 65000, 2),  
+    ('Eve', 'Davis', 70000, NULL);  
+
+---
+
+## 4. Complex Query Fix  
+
+    WITH DeptSummary AS (  
+        SELECT   
+            d.DeptID,  
+            AvgSalary = AVG(e.Salary),  
+            TotalEmployees = COUNT(e.EmployeeID)  
+        FROM Departments d  
+        LEFT JOIN Employees e ON d.DeptID = e.DeptID  
+        GROUP BY d.DeptID  
+    )  
+    SELECT  
+        ds.DeptID,  
+        d.DeptName,  
+        ds.AvgSalary,  
+        EmployeeRank = RANK() OVER (ORDER BY ds.AvgSalary DESC),  
+        BudgetStatus = CASE   
+            WHEN d.Budget > 100000 THEN 'High'   
+            ELSE 'Normal'   
+        END  
+    FROM DeptSummary ds  
+    JOIN Departments d ON ds.DeptID = d.DeptID  
+    FOR JSON PATH;  
+
+---
+
+## 5. Key Changes from Previous Version  
+1. Added `DeptID` column to Employees table  
+2. Established proper foreign key relationship  
+3. Updated data insertion with valid department IDs  
+4. Fixed COUNT() to use explicit column  
+5. Added NULL department example  
+
+---
+
+## 6. Expected JSON Output  
+
+    [
+        {
+            "DeptID": 1,
+            "DeptName": "IT",
+            "AvgSalary": 79000.00,
+            "EmployeeRank": 1,
+            "BudgetStatus": "High"
+        },
+        {
+            "DeptID": 2,
+            "DeptName": "HR", 
+            "AvgSalary": 65000.00,
+            "EmployeeRank": 2,
+            "BudgetStatus": "Normal"
+        }
+    ]
+
+---
+
+## 7. Common Errors & Solutions  
+| Error | Solution |  
+|-------|----------|  
+| Invalid DeptID | Run DBCC CHECKIDENT on Departments |  
+| NULL in joins | Use ISNULL(d.DeptName, 'Unassigned') |  
+| Division errors | Add NULLIF(Budget, 0) |  
+
+---
+
+## 8. Quick Cleanup  
+
+    USE master;  
+    GO  
+    DROP DATABASE IF EXISTS CompanyDemo;  
+    GO  
+
+
+## 9. Comprehensive Guaranteed Cleanup
+
+    USE master;
+    GO
+
+    -- Force close connections and delete
+    IF DB_ID('CompanyDemo') IS NOT NULL
+    BEGIN
+        ALTER DATABASE CompanyDemo SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+        DROP DATABASE CompanyDemo;
+        PRINT 'CompanyDemo database destroyed successfully';
+    END
+    ELSE
+    BEGIN
+        PRINT 'CompanyDemo database does not exist';
+    END
